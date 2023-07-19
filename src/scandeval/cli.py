@@ -176,6 +176,14 @@ from .languages import get_all_languages
     show_default=True,
     help="Whether to load the model in 4-bit precision.",
 )
+@click.option(
+    "--few-shot/--no-few-shot",
+    default=None,
+    show_default=True,
+    help="Whether to run the benchmark in few-shot mode. If not specified then this "
+    "will be done if the model is generative and parameter-efficient finetuning is not "
+    "possible.",
+)
 def benchmark(
     model_id: tuple[str],
     dataset: tuple[str],
@@ -197,6 +205,7 @@ def benchmark(
     device: str | None,
     trust_remote_code: bool,
     load_in_4bit: bool | None,
+    few_shot: bool | None,
 ) -> None:
     """Benchmark pretrained language models on Scandinavian language tasks."""
 
@@ -230,6 +239,7 @@ def benchmark(
         device=device,
         trust_remote_code=trust_remote_code,
         load_in_4bit=load_in_4bit,
+        few_shot=few_shot,
     )
 
     # Perform the benchmark evaluation

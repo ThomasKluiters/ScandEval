@@ -122,7 +122,11 @@ class BenchmarkConfig:
             Hub.
         load_in_4bit:
             Whether to load models in 4-bit precision. If None then this will be done
-            if CUDA is available and the model is a decoder model. Defaults to None.
+            if CUDA is available and the model is a decoder model.
+        few_shot:
+            Whether to run the benchmark in few-shot mode. If None then this will be
+            done if the model is generative and parameter-efficient finetuning is not
+            possible.
         testing:
             Whether a unit test is being run. Defaults to False.
     """
@@ -143,6 +147,7 @@ class BenchmarkConfig:
     verbose: bool
     trust_remote_code: bool
     load_in_4bit: bool | None
+    few_shot: bool | None
     testing: bool = False
 
 

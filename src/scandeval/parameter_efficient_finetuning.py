@@ -1,4 +1,4 @@
-"""Evaluating a model using full finetuning."""
+"""Evaluating a model using Parameter Efficient Finetuning (PEFT)."""
 
 import logging
 import warnings
@@ -8,6 +8,7 @@ from typing import Any, Callable, Type
 
 import torch
 from datasets import Dataset
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from tqdm.auto import tqdm
 from transformers import (
     DataCollator,
@@ -35,7 +36,7 @@ from .utils import (
 logger = logging.getLogger(__package__)
 
 
-def finetune(
+def parameter_efficient_finetune(
     itr: tqdm,
     train: Dataset,
     val: Dataset,
@@ -53,7 +54,7 @@ def finetune(
     trainer_class: Type[Trainer],
     evaluate_inputs_fn: Callable[..., dict[str, Any]],
 ) -> dict[str, list[dict[str, float]]]:
-    """Evaluate a model on a dataset through finetuning.
+    """Evaluate a model on a dataset through parameter efficient finetuning.
 
     Args:
         itr:
@@ -137,7 +138,7 @@ def finetune(
             training_args.per_device_eval_batch_size = bs
             training_args.gradient_accumulation_steps = ga
 
-            itr_scores = finetune_single_iteration(
+            itr_scores = parameter_efficient_finetune_single_iteration(
                 iteration_idx=idx,
                 model_config=model_config,
                 train=train,
@@ -193,7 +194,7 @@ def finetune(
     return scores
 
 
-def finetune_single_iteration(
+def parameter_efficient_finetune_single_iteration(
     iteration_idx: int,
     model_config: ModelConfig,
     train: Dataset,
@@ -270,6 +271,21 @@ def finetune_single_iteration(
             assert isinstance(model_or_generative_model, PreTrainedModel)
             model = model_or_generative_model
 
+        # Prepare for parameter-efficient fine-tuning
+        model.gradient_checkpointing_enable()
+        model = prepare_model_for_kbit_training(model=model)
+        peft_model = get_peft_model(
+            model=model,
+            peft_config=LoraConfig(
+                r=8,
+                lora_alpha=16,
+                lora_dropout=0.05,
+                bias="none",
+                target_modules=["wpe", "c_attn", "c_fc", "c_proj"],
+            ),
+        )
+        peft_model.print_trainable_parameters()
+
         # Initialise compute_metrics function
         compute_metrics = partial(compute_metrics, id2label=dataset_config.id2label)
 
@@ -278,7 +294,7 @@ def finetune_single_iteration(
 
         # Initialise trainer
         trainer = trainer_class(
-            model=model,
+            model=peft_model,
             args=training_args,
             train_dataset=prepared_train,
             eval_dataset=prepared_val,
@@ -334,8 +350,13 @@ def finetune_single_iteration(
         return scores
 
     except (RuntimeError, ValueError, IndexError) as e:
+        raise e  # TEMP
         try:
             del model
+        except UnboundLocalError:
+            pass
+        try:
+            del peft_model
         except UnboundLocalError:
             pass
         try:
@@ -390,11 +411,11 @@ def get_training_args(
             save_total_limit=1,
             per_device_train_batch_size=benchmark_config.batch_size,
             per_device_eval_batch_size=benchmark_config.batch_size,
-            learning_rate=2e-5,
+            learning_rate=5e-3,
             warmup_ratio=0.01,
             gradient_accumulation_steps=1,
             load_best_model_at_end=True,
-            optim=OptimizerNames.ADAMW_TORCH,
+            optim=OptimizerNames.PAGED_ADAMW_8BIT,
             seed=seed,
             use_mps_device=torch.backends.mps.is_available(),
             fp16=torch.cuda.is_available(),

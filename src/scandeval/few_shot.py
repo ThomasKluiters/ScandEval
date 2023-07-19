@@ -1,4 +1,4 @@
-"""Functions related to text generation of models."""
+"""Evaluating a model using few-shot evaluation."""
 
 import logging
 import warnings
@@ -21,7 +21,7 @@ from .utils import clear_memory
 logger = logging.getLogger(__package__)
 
 
-def generate(
+def few_shot(
     itr: tqdm,
     train: Dataset,
     val: Dataset,
@@ -37,7 +37,7 @@ def generate(
     benchmark_config: BenchmarkConfig,
     dataset_config: DatasetConfig,
 ) -> dict[str, list[dict[str, float]]]:
-    """Evaluate a model on a dataset through generation.
+    """Evaluate a model on a dataset using few-shot evaluation.
 
     Args:
         itr:
@@ -87,7 +87,7 @@ def generate(
 
         while True:
             try:
-                test_scores = generate_single_iteration(
+                test_scores = few_shot_single_iteration(
                     prepared_dataset=prepared_test,
                     model=model,
                     tokenizer=tokenizer,
@@ -119,7 +119,7 @@ def generate(
         clear_memory()
 
         if benchmark_config.evaluate_train:
-            train_scores = generate_single_iteration(
+            train_scores = few_shot_single_iteration(
                 prepared_dataset=prepared_train,
                 model=model,
                 tokenizer=tokenizer,
@@ -136,7 +136,7 @@ def generate(
     return scores
 
 
-def generate_single_iteration(
+def few_shot_single_iteration(
     prepared_dataset: Dataset,
     model: GenerativeModel,
     tokenizer: Tokenizer,
@@ -146,7 +146,7 @@ def generate_single_iteration(
     dataset_config: DatasetConfig,
     benchmark_config: BenchmarkConfig,
 ) -> dict[str, float]:
-    """Evaluate a model on a dataset in a single iteration through generation.
+    """Evaluate a model on a dataset in a single iteration of few-shot evaluation.
 
     Args:
         prepared_dataset:

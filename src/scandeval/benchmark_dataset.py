@@ -15,11 +15,13 @@ from tqdm.auto import tqdm
 from transformers import PretrainedConfig, Trainer
 from transformers.modeling_utils import ModelOutput, PreTrainedModel
 
+from scandeval.parameter_efficient_finetuning import parameter_efficient_finetune
+
 from .config import BenchmarkConfig, DatasetConfig, ModelConfig
 from .dataset_tasks import SPEED
 from .exceptions import InvalidBenchmark
+from .few_shot import few_shot
 from .finetuning import finetune
-from .generation import generate
 from .model_config import get_model_config
 from .model_loading import load_model
 from .model_setups import GenerativeModel, Tokenizer
@@ -112,6 +114,14 @@ class BenchmarkDataset(ABC):
             benchmark_config=self.benchmark_config,
         )
 
+        using_generative_model = model_is_generative(model=model)
+        if self.benchmark_config.few_shot is not None:
+            do_few_shot_evaluation = self.benchmark_config.few_shot
+        else:
+            do_few_shot_evaluation = using_generative_model and not isinstance(
+                model, PreTrainedModel
+            )
+
         # This happens when a local model is used, as we cannot fetch the model metadata
         if model_config.task == "unknown":
             if model_is_generative(model=model):
@@ -133,7 +143,8 @@ class BenchmarkDataset(ABC):
                 model_config=model_config,
                 hf_model_config=model.config,
                 tokenizer=tokenizer,
-                generative_model=model_is_generative(model=model),
+                using_generative_model=using_generative_model,
+                do_few_shot_evaluation=do_few_shot_evaluation,
             )
 
         # Set up progress bar
@@ -155,22 +166,42 @@ class BenchmarkDataset(ABC):
                 benchmark_config=self.benchmark_config,
             )
         elif model_is_generative(model=model):
-            scores = generate(
-                itr=itr,
-                train=train,
-                val=val,
-                tests=tests,
-                prepared_train=prepared_train,
-                prepared_val=prepared_val,
-                prepared_tests=prepared_tests,
-                model=model,
-                tokenizer=tokenizer,
-                data_collator=data_collator,
-                compute_metrics=self._compute_metrics,
-                extract_labels_fn=self._extract_labels_from_generation,
-                benchmark_config=self.benchmark_config,
-                dataset_config=self.dataset_config,
-            )
+            if do_few_shot_evaluation:
+                scores = few_shot(
+                    itr=itr,
+                    train=train,
+                    val=val,
+                    tests=tests,
+                    prepared_train=prepared_train,
+                    prepared_val=prepared_val,
+                    prepared_tests=prepared_tests,
+                    model=model,
+                    tokenizer=tokenizer,
+                    data_collator=data_collator,
+                    compute_metrics=self._compute_metrics,
+                    extract_labels_fn=self._extract_labels_from_generation,
+                    benchmark_config=self.benchmark_config,
+                    dataset_config=self.dataset_config,
+                )
+            else:
+                scores = parameter_efficient_finetune(
+                    itr=itr,
+                    train=train,
+                    val=val,
+                    tests=tests,
+                    prepared_train=prepared_train,
+                    prepared_val=prepared_val,
+                    prepared_tests=prepared_tests,
+                    model=model,
+                    tokenizer=tokenizer,
+                    model_config=model_config,
+                    dataset_config=self.dataset_config,
+                    benchmark_config=self.benchmark_config,
+                    compute_metrics=self._compute_metrics,
+                    data_collator=data_collator,
+                    trainer_class=self._get_trainer_class(),
+                    evaluate_inputs_fn=self._get_evaluate_inputs,
+                )
         else:
             scores = finetune(
                 itr=itr,
@@ -346,7 +377,8 @@ class BenchmarkDataset(ABC):
         model_config: ModelConfig,
         hf_model_config: PretrainedConfig,
         tokenizer: Tokenizer,
-        generative_model: bool,
+        using_generative_model: bool,
+        do_few_shot_evaluation: bool,
     ) -> tuple[Dataset, Dataset, list[Dataset]]:
         """Load the data and prepare it for training.
 
@@ -363,8 +395,10 @@ class BenchmarkDataset(ABC):
                 The Hugging Face model configuration.
             tokenizer:
                 The tokenizer.
-            generative_model:
-                Whether the model is a generative model.
+            using_generative_model:
+                Whether or not the model is a generative model.
+            do_few_shot_evaluation:
+                Whether to do few-shot evaluation.
 
         Returns:
             A tuple containing the prepared training, validation and test datasets.
@@ -374,21 +408,21 @@ class BenchmarkDataset(ABC):
             hf_model_config=hf_model_config,
             model_config=model_config,
             tokenizer=tokenizer,
-            generative_model=generative_model,
+            do_few_shot_evaluation=do_few_shot_evaluation,
         )
 
         # Prepare the train and validation datasets
         try:
             with tqdm(total=12, desc="Preprocessing data splits", leave=False) as pbar:
                 prepared_train = train
-                if not generative_model:
+                if not do_few_shot_evaluation:
                     prepared_train = self._preprocess_data(
                         train, split="train", **preprocess_params
                     )
                 pbar.update(1)
 
                 prepared_val = val
-                if not generative_model:
+                if not do_few_shot_evaluation:
                     prepared_val = self._preprocess_data(
                         val, split="val", **preprocess_params
                     )
@@ -396,7 +430,7 @@ class BenchmarkDataset(ABC):
 
                 prepared_tests: list[Dataset] = list()
                 for itr_idx, test in enumerate(tests):
-                    if generative_model:
+                    if do_few_shot_evaluation:
                         itr_seed = 4242 + itr_idx
                         few_shot_examples = self._extract_few_shot_examples(
                             train_dataset=train, random_seed=itr_seed
@@ -408,6 +442,15 @@ class BenchmarkDataset(ABC):
                         test = test.map(
                             few_shot_fn, batched=True, load_from_cache_file=False
                         )
+                    elif using_generative_model:
+                        few_shot_fn = partial(
+                            self._apply_few_shot_prompt,
+                            few_shot_examples=list(),
+                        )
+                        test = test.map(
+                            few_shot_fn, batched=True, load_from_cache_file=False
+                        )
+
                     prepared_test = self._preprocess_data(
                         test, split="test", **preprocess_params
                     )

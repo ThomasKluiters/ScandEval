@@ -17,7 +17,7 @@ from transformers.modeling_utils import ModelOutput
 from .benchmark_dataset import BenchmarkDataset
 from .config import DatasetConfig
 from .exceptions import InvalidBenchmark
-from .generation import extract_raw_predictions
+from .few_shot import extract_raw_predictions
 from .model_setups import GenerativeModel, Tokenizer
 from .utils import GENERATIVE_MODEL_TASKS, get_special_token_metadata
 
@@ -62,6 +62,8 @@ class SequenceClassification(BenchmarkDataset):
         cls_token = special_token_metadata["cls_token"]
         sep_token = special_token_metadata["sep_token"]
 
+        using_generative_model = kwargs["model_config"].task in GENERATIVE_MODEL_TASKS
+
         def tokenise(examples: dict) -> BatchEncoding:
             # If the tokenizer is not adding special tokens, then we add them manually.
             # We don't need this when performing few-shot evaluations, so in that case
@@ -71,17 +73,23 @@ class SequenceClassification(BenchmarkDataset):
                 and not has_sep_token
                 and cls_token is not None
                 and sep_token is not None
-                and kwargs["model_config"].task not in GENERATIVE_MODEL_TASKS
+                and not (using_generative_model and self.benchmark_config.few_shot)
             ):
                 examples["text"] = [
                     f"{cls_token}{doc}{sep_token}" for doc in examples["text"]
+                ]
+
+            if using_generative_model and not self.benchmark_config.few_shot:
+                examples["text"] = [
+                    doc + label
+                    for doc, label in zip(examples["text"], examples["label"])
                 ]
 
             return tokenizer(text=examples["text"], truncation=True, padding=False)
 
         tokenised = dataset.map(tokenise, batched=True, load_from_cache_file=False)
 
-        if kwargs["model_config"].task not in GENERATIVE_MODEL_TASKS:
+        if not using_generative_model:
             numericalise = partial(
                 self._create_numerical_labels,
                 label2id=kwargs["hf_model_config"].label2id,
@@ -89,6 +97,8 @@ class SequenceClassification(BenchmarkDataset):
             return tokenised.map(
                 numericalise, batched=True, load_from_cache_file=False
             ).remove_columns(["text"])
+        elif not self.benchmark_config.few_shot:
+            return tokenised.remove_columns(["text"])
         else:
             return tokenised
 
@@ -235,6 +245,8 @@ class SequenceClassification(BenchmarkDataset):
         if self.dataset_config.prompt_prefix:
             prompt_prefix = self.dataset_config.prompt_prefix + "\n\n"
         few_shot_prompt = prompt_prefix + "\n\n".join(few_shot_prompts)
+        if few_shot_prompt:
+            few_shot_prompt += "\n\n"
 
         # Add the texts from the examples to the prompts. We remove newlines from the
         # examples as they have the special function to separate the few-shot examples
@@ -246,9 +258,7 @@ class SequenceClassification(BenchmarkDataset):
             for text in examples["text"]
         ]
 
-        examples["text"] = [
-            few_shot_prompt + "\n\n" + new_prompt for new_prompt in new_prompts
-        ]
+        examples["text"] = [few_shot_prompt + new_prompt for new_prompt in new_prompts]
 
         return examples
 
