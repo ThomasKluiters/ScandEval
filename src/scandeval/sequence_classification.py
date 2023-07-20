@@ -11,7 +11,10 @@ import numpy as np
 import torch
 from datasets.arrow_dataset import Dataset
 from transformers import BatchEncoding, PreTrainedModel
-from transformers.data.data_collator import DataCollatorWithPadding
+from transformers.data.data_collator import (
+    DataCollatorForLanguageModeling,
+    DataCollatorWithPadding,
+)
 from transformers.modeling_utils import ModelOutput
 
 from .benchmark_dataset import BenchmarkDataset
@@ -19,7 +22,11 @@ from .config import DatasetConfig
 from .exceptions import InvalidBenchmark
 from .few_shot import extract_raw_predictions
 from .model_setups import GenerativeModel, Tokenizer
-from .utils import GENERATIVE_MODEL_TASKS, get_special_token_metadata
+from .utils import (
+    GENERATIVE_MODEL_TASKS,
+    get_special_token_metadata,
+    model_is_generative,
+)
 
 logger = logging.getLogger(__package__)
 
@@ -130,6 +137,8 @@ class SequenceClassification(BenchmarkDataset):
         Returns:
             The data collator.
         """
+        if model_is_generative(model=model) and not self.benchmark_config.few_shot:
+            return DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
         return DataCollatorWithPadding(tokenizer, padding="longest")
 
     def _compute_metrics(

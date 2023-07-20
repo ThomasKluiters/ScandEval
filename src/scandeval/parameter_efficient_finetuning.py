@@ -350,7 +350,6 @@ def parameter_efficient_finetune_single_iteration(
         return scores
 
     except (RuntimeError, ValueError, IndexError) as e:
-        raise e  # TEMP
         try:
             del model
         except UnboundLocalError:
