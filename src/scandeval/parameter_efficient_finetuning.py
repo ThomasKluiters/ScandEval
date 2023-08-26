@@ -7,6 +7,7 @@ from functools import partial
 from typing import Any, Callable, Type
 
 import torch
+import torch.nn as nn
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from tqdm.auto import tqdm
@@ -27,6 +28,7 @@ from .config import BenchmarkConfig, DatasetConfig, ModelConfig
 from .model_loading import load_model
 from .model_setups import Tokenizer
 from .utils import (
+    GENERATIVE_MODEL_TASKS,
     block_terminal_output,
     clear_memory,
     enforce_reproducibility,
@@ -99,7 +101,6 @@ def parameter_efficient_finetune(
     scores: dict[str, list[dict[str, float]]] = defaultdict(list)
 
     bs: int = benchmark_config.batch_size
-    ga: int = 32 // bs
     for idx in itr:
         # Set variable that tracks whether we need to initialize new models in
         # the single iteration call
@@ -131,12 +132,8 @@ def parameter_efficient_finetune(
                 benchmark_config=benchmark_config,
                 model_config=model_config,
                 iteration_idx=idx,
+                batch_size=bs,
             )
-
-            # Set the correct batch size and gradient accumulation
-            training_args.per_device_train_batch_size = bs
-            training_args.per_device_eval_batch_size = bs
-            training_args.gradient_accumulation_steps = ga
 
             itr_scores = parameter_efficient_finetune_single_iteration(
                 iteration_idx=idx,
@@ -165,13 +162,7 @@ def parameter_efficient_finetune(
             # again
             else:
                 bs = training_args.per_device_train_batch_size
-                ga = training_args.gradient_accumulation_steps
-
-                bs, ga = handle_error(
-                    e=itr_scores,
-                    per_device_train_batch_size=bs,
-                    gradient_accumulation_steps=ga,
-                )
+                bs = handle_error(e=itr_scores, per_device_train_batch_size=bs)
 
                 # Clear memory, to avoid memory issues
                 try:
@@ -274,17 +265,22 @@ def parameter_efficient_finetune_single_iteration(
         # Prepare for parameter-efficient fine-tuning
         model.gradient_checkpointing_enable()
         model = prepare_model_for_kbit_training(model=model)
+        assert isinstance(model, PreTrainedModel)
         peft_model = get_peft_model(
             model=model,
             peft_config=LoraConfig(
-                r=8,
-                lora_alpha=16,
+                r=8,  # Dimension of the intermediate representation
+                lora_alpha=16,  # How much the LoRA weight change is scaled
                 lora_dropout=0.05,
                 bias="none",
-                target_modules=["wpe", "c_attn", "c_fc", "c_proj"],
+                target_modules=get_names_of_all_linear_layers(model=model),
             ),
         )
-        peft_model.print_trainable_parameters()
+        num_trainable_params, _ = peft_model.get_nb_trainable_parameters()
+        logger.info(
+            f"Conducting parameter-efficient finetuning, with {num_trainable_params:,} "
+            "trainable parameters."
+        )
 
         # Initialise compute_metrics function
         compute_metrics = partial(compute_metrics, id2label=dataset_config.id2label)
@@ -325,6 +321,7 @@ def parameter_efficient_finetune_single_iteration(
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
+            breakpoint()
             trainer.train()
 
         if benchmark_config.evaluate_train:
@@ -370,6 +367,7 @@ def get_training_args(
     benchmark_config: BenchmarkConfig,
     model_config: ModelConfig,
     iteration_idx: int,
+    batch_size: int | None = None,
 ) -> TrainingArguments:
     """Get the training arguments for the current iteration.
 
@@ -381,18 +379,34 @@ def get_training_args(
         iteration_idx:
             The index of the current iteration. This is only used to generate a
             unique random seed for the current iteration.
+        batch_size:
+            The batch size to use for the current iteration, or None if the batch size
+            in the benchmark config should be used.
 
     Returns:
         The training arguments for the current iteration.
     """
-    # Set the logging strategy
     if benchmark_config.verbose:
         logging_strategy = IntervalStrategy.STEPS
     else:
         logging_strategy = IntervalStrategy.NO
 
-    # Set seed variable
     seed = 4242 + iteration_idx
+
+    if batch_size is None:
+        batch_size = benchmark_config.batch_size
+
+    if benchmark_config.device != torch.device("cuda"):
+        load_in_4bit = False
+    elif benchmark_config.load_in_4bit is not None:
+        load_in_4bit = benchmark_config.load_in_4bit
+    else:
+        load_in_4bit = model_config.task in GENERATIVE_MODEL_TASKS
+
+    if load_in_4bit:
+        optim = OptimizerNames.PAGED_ADAMW_8BIT
+    else:
+        optim = OptimizerNames.ADAMW_TORCH
 
     # Initialise training arguments
     with warnings.catch_warnings():
@@ -408,20 +422,33 @@ def get_training_args(
             max_steps=10_000 if not benchmark_config.testing else 10,
             report_to=[],
             save_total_limit=1,
-            per_device_train_batch_size=benchmark_config.batch_size,
-            per_device_eval_batch_size=benchmark_config.batch_size,
+            per_device_train_batch_size=batch_size,
+            per_device_eval_batch_size=batch_size,
             learning_rate=5e-3,
             warmup_ratio=0.01,
-            gradient_accumulation_steps=1,
+            gradient_accumulation_steps=32 // batch_size,
             load_best_model_at_end=True,
-            optim=OptimizerNames.PAGED_ADAMW_8BIT,
+            optim=optim,
             seed=seed,
             use_mps_device=torch.backends.mps.is_available(),
             fp16=torch.cuda.is_available(),
+            disable_tqdm=not benchmark_config.progress_bar,
+            remove_unused_columns=False,
         )
 
-    # Manually set `disable_tqdm` to `False` if `progress_bar` is `True`
-    if benchmark_config.progress_bar:
-        training_args.disable_tqdm = False
-
     return training_args
+
+
+def get_names_of_all_linear_layers(model: PreTrainedModel) -> list[str]:
+    """Get the names of all linear layers in the model.
+
+    Args:
+        model:
+            The model.
+
+    Returns:
+        The names of all linear layers in the model.
+    """
+    return [
+        name for name, module in model.named_modules() if isinstance(module, nn.Linear)
+    ]

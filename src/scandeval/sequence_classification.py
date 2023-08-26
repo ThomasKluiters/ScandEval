@@ -91,8 +91,12 @@ class SequenceClassification(BenchmarkDataset):
                     doc + label
                     for doc, label in zip(examples["text"], examples["label"])
                 ]
+                examples.pop("label")
 
-            return tokenizer(text=examples["text"], truncation=True, padding=False)
+            tokenised_examples = tokenizer(
+                text=examples["text"], truncation=True, padding=False
+            )
+            return tokenised_examples
 
         tokenised = dataset.map(tokenise, batched=True, load_from_cache_file=False)
 

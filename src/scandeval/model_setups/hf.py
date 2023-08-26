@@ -5,7 +5,6 @@ import warnings
 from json import JSONDecodeError
 from typing import Type, TypedDict
 
-import torch
 from huggingface_hub import HfApi, ModelFilter
 from huggingface_hub.hf_api import RepositoryNotFoundError
 from requests import RequestException
@@ -16,12 +15,12 @@ from ..enums import Framework, ModelType
 from ..exceptions import HuggingFaceHubDown, InvalidBenchmark, NoInternetConnection
 from ..languages import get_all_languages
 from ..utils import (
-    GENERATIVE_MODEL_TASKS,
     HiddenPrints,
     block_terminal_output,
     create_model_cache_dir,
     get_class_by_name,
     internet_connection_available,
+    load_model_in_4bit,
     model_is_generative,
 )
 from .base import GenerativeModel, Tokenizer
@@ -205,13 +204,10 @@ class HFModelSetup:
         from_flax = model_config.framework == Framework.JAX
         ignore_mismatched_sizes = False
 
-        if self.benchmark_config.load_in_4bit is not None:
-            load_in_4bit = self.benchmark_config.load_in_4bit
-        else:
-            load_in_4bit = (
-                model_config.task in GENERATIVE_MODEL_TASKS
-                and self.benchmark_config.device == torch.device("cuda")
-            )
+        load_in_4bit = load_model_in_4bit(
+            benchmark_config=self.benchmark_config,
+            model_config=model_config,
+        )
 
         loading_kwargs: LoadingArguments = {
             "revision": model_config.revision,
@@ -273,7 +269,6 @@ class HFModelSetup:
                                 from_flax=from_flax,
                                 ignore_mismatched_sizes=ignore_mismatched_sizes,
                                 load_in_4bit=load_in_4bit,
-                                # bnb_4bit_use_double_quant=load_in_4bit,  # TEMP?
                                 **loading_kwargs,
                             )
                         except (KeyError, RuntimeError) as e:

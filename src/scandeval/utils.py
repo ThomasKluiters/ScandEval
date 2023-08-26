@@ -24,7 +24,7 @@ from requests.exceptions import RequestException
 from transformers import PreTrainedModel
 from transformers import logging as tf_logging
 
-from .config import Language
+from .config import BenchmarkConfig, Language, ModelConfig
 from .enums import Framework
 from .exceptions import InvalidBenchmark
 from .languages import DA, NB, NN, NO, SV, get_all_languages
@@ -218,11 +218,7 @@ def kebab_to_pascal(kebab_string: str) -> str:
     return "".join(word.title() for word in kebab_string.split("-"))
 
 
-def handle_error(
-    e: Exception,
-    per_device_train_batch_size: int,
-    gradient_accumulation_steps: int,
-) -> tuple[int, int]:
+def handle_error(e: Exception, per_device_train_batch_size: int) -> int:
     """Handle an error that occurred during the benchmarking process.
 
     Args:
@@ -230,11 +226,9 @@ def handle_error(
             The exception that was raised.
         per_device_train_batch_size:
             The batch size used for training.
-        gradient_accumulation_steps:
-            The number of gradient accumulation steps.
 
     Returns:
-        The batch size and gradient accumulation steps to use.
+        The batch size.
     """
     # We assume that all these errors are caused by insufficient GPU memory
     gpu_errors = ["CUDA out of memory", "CUDA error", "MPS backend out of memory"]
@@ -243,10 +237,10 @@ def handle_error(
     if all([err not in str(e) for err in gpu_errors]):
         raise InvalidBenchmark(str(e))
 
-    # If it is a GPU memory error, then reduce batch size and up gradient accumulation
+    # If it is a GPU memory error, then reduce batch size
     if per_device_train_batch_size == 1:
         raise InvalidBenchmark("GPU out of memory, even with a batch size of 1!")
-    return per_device_train_batch_size // 2, gradient_accumulation_steps * 2
+    return per_device_train_batch_size // 2
 
 
 def internet_connection_available() -> bool:
@@ -540,3 +534,26 @@ def model_is_generative(model: PreTrainedModel | GenerativeModel) -> bool:
         return True
     except (NotImplementedError, TypeError):
         return False
+
+
+def load_model_in_4bit(
+    benchmark_config: BenchmarkConfig, model_config: ModelConfig
+) -> bool:
+    """Check if a model should be loaded in 4-bit mode.
+
+    Args:
+        benchmark_config:
+            The benchmark config.
+        model_config:
+            The model config.
+
+    Returns:
+        Whether the model should be loaded in 4-bit mode.
+    """
+    if benchmark_config.device != torch.device("cuda"):
+        load_in_4bit = False
+    elif benchmark_config.load_in_4bit is not None:
+        load_in_4bit = benchmark_config.load_in_4bit
+    else:
+        load_in_4bit = model_config.task in GENERATIVE_MODEL_TASKS
+    return load_in_4bit

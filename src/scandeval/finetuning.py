@@ -130,6 +130,7 @@ def finetune(
                 benchmark_config=benchmark_config,
                 model_config=model_config,
                 iteration_idx=idx,
+                batch_size=bs,
             )
 
             # Set the correct batch size and gradient accumulation
@@ -164,13 +165,7 @@ def finetune(
             # again
             else:
                 bs = training_args.per_device_train_batch_size
-                ga = training_args.gradient_accumulation_steps
-
-                bs, ga = handle_error(
-                    e=itr_scores,
-                    per_device_train_batch_size=bs,
-                    gradient_accumulation_steps=ga,
-                )
+                bs = handle_error(e=itr_scores, per_device_train_batch_size=bs)
 
                 # Clear memory, to avoid memory issues
                 try:
@@ -350,6 +345,7 @@ def get_training_args(
     benchmark_config: BenchmarkConfig,
     model_config: ModelConfig,
     iteration_idx: int,
+    batch_size: int | None = None,
 ) -> TrainingArguments:
     """Get the training arguments for the current iteration.
 
@@ -361,18 +357,22 @@ def get_training_args(
         iteration_idx:
             The index of the current iteration. This is only used to generate a
             unique random seed for the current iteration.
+        batch_size:
+            The batch size to use for the current iteration, or None if the batch size
+            in the benchmark config should be used.
 
     Returns:
         The training arguments for the current iteration.
     """
-    # Set the logging strategy
     if benchmark_config.verbose:
         logging_strategy = IntervalStrategy.STEPS
     else:
         logging_strategy = IntervalStrategy.NO
 
-    # Set seed variable
     seed = 4242 + iteration_idx
+
+    if batch_size is None:
+        batch_size = benchmark_config.batch_size
 
     # Initialise training arguments
     with warnings.catch_warnings():
@@ -388,8 +388,8 @@ def get_training_args(
             max_steps=10_000 if not benchmark_config.testing else 10,
             report_to=[],
             save_total_limit=1,
-            per_device_train_batch_size=benchmark_config.batch_size,
-            per_device_eval_batch_size=benchmark_config.batch_size,
+            per_device_train_batch_size=batch_size,
+            per_device_eval_batch_size=batch_size,
             learning_rate=2e-5,
             warmup_ratio=0.01,
             gradient_accumulation_steps=1,
@@ -398,10 +398,7 @@ def get_training_args(
             seed=seed,
             use_mps_device=torch.backends.mps.is_available(),
             fp16=torch.cuda.is_available(),
+            disable_tqdm=not benchmark_config.progress_bar,
         )
-
-    # Manually set `disable_tqdm` to `False` if `progress_bar` is `True`
-    if benchmark_config.progress_bar:
-        training_args.disable_tqdm = False
 
     return training_args
