@@ -409,14 +409,6 @@ def get_huggingface_model_lists(
         # Extract the model IDs
         model_ids: list[str] = [model.modelId for model in models if model.modelId]
 
-        # Remove models that are too large, and thus needs to be specified manually
-        large_regex = re.compile(r"(-|_)(x+l(arge)?|[1-9.]+[Bb])")
-        model_ids = [
-            model_id
-            for model_id in model_ids
-            if re.search(large_regex, model_id) is None
-        ]
-
         # Remove models that have "finetuned" in their name
         model_ids = [
             model_id for model_id in model_ids if "finetuned" not in model_id.lower()
@@ -461,7 +453,7 @@ def get_huggingface_model_lists(
     model_lists["all"].extend(multi_models)
 
     # Add fresh models
-    fresh_models = ["fresh-xlmr-base", "fresh-electra-small"]
+    fresh_models = ["fresh-xlm-roberta-base", "fresh-electra-small"]
     model_lists["fresh"].extend(fresh_models)
     model_lists["all"].extend(fresh_models)
 
@@ -508,6 +500,7 @@ def get_huggingface_model_lists(
     BANNED_MODELS = [
         r"TransQuest/siamesetransquest-da.*",
         r"M-CLIP/.*",
+        r".*/.*CTRL.*",  # TEMP
     ]
     for lang, model_list in model_lists.items():
         model_lists[lang] = [
@@ -542,7 +535,7 @@ def model_is_generative(model: PreTrainedModel | GenerativeModel) -> bool:
         Whether the model is generative or not.
     """
     try:
-        dummy_inputs = torch.tensor([[0]], device=model.device, dtype=torch.long)
+        dummy_inputs = torch.tensor([[1]], device=model.device, dtype=torch.long)
         model.generate(inputs=dummy_inputs, max_new_tokens=1)
         return True
     except (NotImplementedError, TypeError):

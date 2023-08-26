@@ -239,8 +239,10 @@ class HFModelSetup:
                     )
 
                 # Get the model class associated with the supertask
-                if model_config.task in GENERATIVE_MODEL_TASKS:
+                if model_config.task in ["text-generation", "conversational"]:
                     model_cls_supertask = "causal-l-m"
+                elif model_config.task == "text2text-generation":
+                    model_cls_supertask = "seq-2-seq-l-m"
                 else:
                     model_cls_supertask = supertask
                 model_cls_or_none: Type[PreTrainedModel] | None = get_class_by_name(
@@ -274,7 +276,7 @@ class HFModelSetup:
                                 # bnb_4bit_use_double_quant=load_in_4bit,  # TEMP?
                                 **loading_kwargs,
                             )
-                        except KeyError as e:
+                        except (KeyError, RuntimeError) as e:
                             if not ignore_mismatched_sizes:
                                 ignore_mismatched_sizes = True
                                 continue
@@ -349,7 +351,7 @@ class HFModelSetup:
                     padding_side=padding_side,
                     truncation_side=padding_side,
                 )
-            except (JSONDecodeError, OSError):
+            except (JSONDecodeError, OSError, TypeError):
                 raise InvalidBenchmark(
                     f"Could not load tokenizer for model {model_id!r}."
                 )
@@ -371,7 +373,7 @@ class HFModelSetup:
             "Hub, or it has no frameworks registered, or it is a private "
             "model. If it *does* exist on the Hub and is a public model then "
             "please ensure that it has a framework registered. If it is a "
-            "private model then enable the `--token` flag and make "
+            "private model then enable the `--use-token` flag and make "
             "sure that you are logged in to the Hub via the "
             "`huggingface-cli login` command."
         )

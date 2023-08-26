@@ -122,7 +122,9 @@ class BenchmarkDataset(ABC):
                 model, PreTrainedModel
             )
 
-        # This happens when a local model is used, as we cannot fetch the model metadata
+        # This happens when a local model is used, as we cannot fetch the model
+        # metadata. Note that this is only the case if the model type is not any of the
+        # ones hardcoded in `local.py`
         if model_config.task == "unknown":
             if model_is_generative(model=model):
                 model_config.task = GENERATIVE_MODEL_TASKS[0]
@@ -287,6 +289,7 @@ class BenchmarkDataset(ABC):
             num_model_parameters=num_params,
             max_sequence_length=max_seq_length,
             vocabulary_size=vocab_size,
+            few_shot=model_is_generative(model=model),
         )
 
         # Log the metadata
@@ -412,22 +415,36 @@ class BenchmarkDataset(ABC):
         )
 
         # Prepare the train and validation datasets
-        try:
-            with tqdm(total=12, desc="Preprocessing data splits", leave=False) as pbar:
+        with tqdm(total=12, desc="Preprocessing data splits", leave=False) as pbar:
+            # When evaluating generative models we only need the test split, so
+            # there's no need to prepare the train split
+            try:
                 prepared_train = train
                 if not do_few_shot_evaluation:
                     prepared_train = self._preprocess_data(
                         train, split="train", **preprocess_params
                     )
                 pbar.update(1)
+            except ValueError:
+                raise InvalidBenchmark(
+                    "Preprocessing of the training dataset could not be done."
+                )
 
+            # When evaluating generative models we only need the test split, so
+            # there's no need to prepare the validation split
+            try:
                 prepared_val = val
                 if not do_few_shot_evaluation:
                     prepared_val = self._preprocess_data(
                         val, split="val", **preprocess_params
                     )
                 pbar.update(1)
+            except ValueError:
+                raise InvalidBenchmark(
+                    "Preprocessing of the validation dataset could not be done."
+                )
 
+            try:
                 prepared_tests: list[Dataset] = list()
                 for itr_idx, test in enumerate(tests):
                     if do_few_shot_evaluation:
@@ -455,13 +472,11 @@ class BenchmarkDataset(ABC):
                         test, split="test", **preprocess_params
                     )
                     prepared_tests.append(prepared_test)
-
                     pbar.update(1)
-        except ValueError:
-            raise InvalidBenchmark(
-                "Preprocessing of the training and validation datasets could not be "
-                "done."
-            )
+            except ValueError:
+                raise InvalidBenchmark(
+                    "Preprocessing of the test dataset could not be done."
+                )
 
         return prepared_train, prepared_val, prepared_tests
 
