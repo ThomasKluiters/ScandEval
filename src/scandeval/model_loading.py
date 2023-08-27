@@ -7,13 +7,11 @@ from transformers import PreTrainedModel
 from .config import BenchmarkConfig, DatasetConfig, ModelConfig
 from .model_setups import (
     FreshModelSetup,
-    GenerativeModel,
     HFModelSetup,
     LocalModelSetup,
-    ModelSetup,
     OpenAIModelSetup,
-    Tokenizer,
 )
+from .protocols import GenerativeModel, ModelSetup, Tokenizer
 
 
 def load_model(

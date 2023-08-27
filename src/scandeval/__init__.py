@@ -5,23 +5,29 @@
 import importlib.metadata
 import logging
 import os
+import warnings
 
 from dotenv import load_dotenv
 from termcolor import colored
 
-from .benchmarker import Benchmarker
-from .utils import block_terminal_output
+from .utils import HiddenPrints, block_terminal_output
+
+# The warnings and prints hidden here come from the `bitsandbytes` package, when no GPU
+# is available
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", category=UserWarning)
+    with HiddenPrints():
+        from .benchmarker import Benchmarker
 
 # Fetches the version of the package as defined in pyproject.toml
 __version__ = importlib.metadata.version(__package__)
 
 
-# Block unwanted terminal outputs
-block_terminal_output()
-
-
 # Loads environment variables
 load_dotenv()
+
+
+block_terminal_output()
 
 
 # Set up logging

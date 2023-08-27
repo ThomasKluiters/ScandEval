@@ -9,7 +9,9 @@ from typing import Any, Callable, Type
 import torch
 import torch.nn as nn
 from datasets import Dataset
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from peft.mapping import get_peft_model
+from peft.tuners.lora import LoraConfig
+from peft.utils.other import prepare_model_for_kbit_training
 from tqdm.auto import tqdm
 from transformers import (
     DataCollator,
@@ -26,7 +28,7 @@ from transformers.trainer import OptimizerNames
 from .callbacks import NeverLeaveProgressCallback
 from .config import BenchmarkConfig, DatasetConfig, ModelConfig
 from .model_loading import load_model
-from .model_setups import Tokenizer
+from .protocols import Tokenizer
 from .utils import (
     GENERATIVE_MODEL_TASKS,
     block_terminal_output,
@@ -321,7 +323,6 @@ def parameter_efficient_finetune_single_iteration(
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
-            breakpoint()
             trainer.train()
 
         if benchmark_config.evaluate_train:
@@ -416,7 +417,7 @@ def get_training_args(
             evaluation_strategy=IntervalStrategy.STEPS,
             logging_strategy=logging_strategy,
             save_strategy=IntervalStrategy.STEPS,
-            eval_steps=30,
+            eval_steps=2,  # TEM
             logging_steps=30,
             save_steps=30,
             max_steps=10_000 if not benchmark_config.testing else 10,

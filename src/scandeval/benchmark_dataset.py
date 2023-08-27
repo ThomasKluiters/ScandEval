@@ -12,10 +12,9 @@ from datasets.dataset_dict import DatasetDict
 from datasets.load import load_dataset
 from huggingface_hub.utils._errors import HfHubHTTPError
 from tqdm.auto import tqdm
-from transformers import PretrainedConfig, Trainer
+from transformers.configuration_utils import PretrainedConfig
 from transformers.modeling_utils import ModelOutput, PreTrainedModel
-
-from scandeval.parameter_efficient_finetuning import parameter_efficient_finetune
+from transformers.trainer import Trainer
 
 from .config import BenchmarkConfig, DatasetConfig, ModelConfig
 from .dataset_tasks import SPEED
@@ -24,12 +23,20 @@ from .few_shot import few_shot
 from .finetuning import finetune
 from .model_config import get_model_config
 from .model_loading import load_model
-from .model_setups import GenerativeModel, Tokenizer
 from .openai_models import OpenAIModel
+from .parameter_efficient_finetuning import parameter_efficient_finetune
+from .protocols import GenerativeModel, Tokenizer
 from .scores import log_scores
 from .speed_benchmark import benchmark_speed
 from .types import SCORE_DICT
-from .utils import GENERATIVE_MODEL_TASKS, enforce_reproducibility, model_is_generative
+from .utils import (
+    GENERATIVE_MODEL_TASKS,
+    block_terminal_output,
+    enforce_reproducibility,
+    model_is_generative,
+)
+
+block_terminal_output()
 
 logger = logging.getLogger(__package__)
 

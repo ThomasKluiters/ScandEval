@@ -14,6 +14,7 @@ from ..config import BenchmarkConfig, DatasetConfig, ModelConfig
 from ..enums import Framework, ModelType
 from ..exceptions import HuggingFaceHubDown, InvalidBenchmark, NoInternetConnection
 from ..languages import get_all_languages
+from ..protocols import GenerativeModel, Tokenizer
 from ..utils import (
     HiddenPrints,
     block_terminal_output,
@@ -23,7 +24,6 @@ from ..utils import (
     load_model_in_4bit,
     model_is_generative,
 )
-from .base import GenerativeModel, Tokenizer
 from .utils import align_model_and_tokenizer, setup_model_for_question_answering
 
 logger = logging.getLogger(__package__)

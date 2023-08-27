@@ -8,8 +8,8 @@ from transformers import AutoConfig, PreTrainedModel
 from ..config import BenchmarkConfig, DatasetConfig, ModelConfig
 from ..enums import Framework, ModelType
 from ..exceptions import InvalidBenchmark
+from ..protocols import GenerativeModel, Tokenizer
 from ..utils import create_model_cache_dir
-from .base import GenerativeModel, Tokenizer
 from .hf import HFModelSetup
 
 logger = logging.getLogger(__package__)

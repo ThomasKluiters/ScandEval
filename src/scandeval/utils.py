@@ -28,7 +28,7 @@ from .config import BenchmarkConfig, Language, ModelConfig
 from .enums import Framework
 from .exceptions import InvalidBenchmark
 from .languages import DA, NB, NN, NO, SV, get_all_languages
-from .model_setups import GenerativeModel, Tokenizer
+from .protocols import GenerativeModel, Tokenizer
 
 logger = logging.getLogger(__package__)
 
