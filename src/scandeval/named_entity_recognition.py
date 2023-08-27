@@ -18,7 +18,7 @@ from transformers.modeling_utils import ModelOutput
 from .benchmark_dataset import BenchmarkDataset
 from .exceptions import InvalidBenchmark
 from .few_shot import extract_raw_predictions
-from .model_setups import GenerativeModel, Tokenizer
+from .protocols import GenerativeModel, Tokenizer
 from .utils import GENERATIVE_MODEL_TASKS, model_is_generative
 
 logger = logging.getLogger(__package__)
@@ -57,14 +57,11 @@ class NamedEntityRecognition(BenchmarkDataset):
         }
         self.has_misc_tags = "B-MISC" in labels_in_train or "I-MISC" in labels_in_train
 
-        # Return the dataset dictionary
         return dataset_dict
 
     def _compute_metrics(
         self,
-        model_outputs_and_labels: tuple[
-            list[list[list[float]]] | list[list[str]], list[list[int]] | list[list[str]]
-        ],
+        model_outputs_and_labels: tuple[np.ndarray, np.ndarray],
         id2label: list[str],
     ) -> dict[str, float]:
         """Compute the metrics needed for evaluation.
@@ -80,7 +77,6 @@ class NamedEntityRecognition(BenchmarkDataset):
             A dictionary with the names of the metrics as keys and the metric values as
             values.
         """
-        # Get the predictions from the model
         model_outputs, labels = model_outputs_and_labels
 
         predictions: list[list[str]]

@@ -42,6 +42,14 @@ and this project adheres to
 - Previously generative models had their maximum sequence length altered by subtracting
   their padding token ID. This is not needed anymore and have been removed.
 
+### Fixed
+- Handles timeouts better now, when fetching models from the Hugging Face Hub. Instead
+  of simply throwing the error, cancelling the benchmarking process, it simply tries
+  again until the connection is up again.
+- Some models output both logits and hidden states, which caused unnecessary
+  out-of-memory issues. This is now handled using the `preprocess_logits_for_metrics`
+  argument in `Trainer`.
+
 
 ## [v7.1.1] - 2023-07-01
 ### Fixed

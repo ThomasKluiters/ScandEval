@@ -147,7 +147,7 @@ class SequenceClassification(BenchmarkDataset):
 
     def _compute_metrics(
         self,
-        model_outputs_and_labels: tuple[list, list],
+        model_outputs_and_labels: tuple[np.ndarray, np.ndarray],
         id2label: list[str],
     ) -> dict[str, float]:
         """Compute the metrics needed for evaluation.
