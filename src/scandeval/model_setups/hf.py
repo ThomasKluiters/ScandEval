@@ -242,6 +242,7 @@ class HFModelSetup:
 
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=UserWarning)
+                    warnings.filterwarnings("ignore", category=FutureWarning)
                     with HiddenPrints():
                         try:
                             model_or_tuple = model_cls_or_none.from_pretrained(
