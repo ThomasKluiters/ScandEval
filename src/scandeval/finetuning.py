@@ -257,8 +257,7 @@ def finetune_single_iteration(
     """
     scores: dict[str, dict[str, float]] = dict()
 
-    # Set random seeds to enforce reproducibility of the randomly initialised
-    # weights
+    # Set random seeds to enforce reproducibility of the randomly initialised weights
     seed = 4242 + iteration_idx
     enforce_reproducibility(framework=model_config.framework, seed=seed)
 
@@ -292,8 +291,8 @@ def finetune_single_iteration(
 
         trainer.log = no_logging
 
-    # Re-block terminal output, as it gets unblocked by the `transformers`
-    # package before training
+    # Re-block terminal output, as it gets unblocked by the `transformers` package
+    # before training
     block_terminal_output()
 
     # Sort out callbacks. We remove the callbacks that are producing unnecessary
