@@ -98,7 +98,6 @@ def finetune(
     scores: dict[str, list[dict[str, float]]] = defaultdict(list)
 
     bs: int = benchmark_config.batch_size
-    ga: int = 32 // bs
     for idx in itr:
         # Set variable that tracks whether we need to initialize new models in
         # the single iteration call
@@ -132,11 +131,6 @@ def finetune(
                 iteration_idx=idx,
                 batch_size=bs,
             )
-
-            # Set the correct batch size and gradient accumulation
-            training_args.per_device_train_batch_size = bs
-            training_args.per_device_eval_batch_size = bs
-            training_args.gradient_accumulation_steps = ga
 
             itr_scores = finetune_single_iteration(
                 iteration_idx=idx,
