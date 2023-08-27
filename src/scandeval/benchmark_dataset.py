@@ -25,7 +25,10 @@ from .finetuning import finetune
 from .model_config import get_model_config
 from .model_loading import load_model
 from .openai_models import OpenAIModel
-from .parameter_efficient_finetuning import parameter_efficient_finetune
+from .parameter_efficient_finetuning import (
+    log_peft_trainable_parameters,
+    parameter_efficient_finetune,
+)
 from .protocols import GenerativeModel, Tokenizer
 from .scores import log_scores
 from .speed_benchmark import benchmark_speed
@@ -157,6 +160,10 @@ class BenchmarkDataset(ABC):
                 do_few_shot_evaluation=do_few_shot_evaluation,
             )
 
+        peft_finetune = model_is_generative(model=model) and not do_few_shot_evaluation
+        if peft_finetune:
+            log_peft_trainable_parameters(model=model)
+
         # Set up progress bar
         itr = tqdm(
             iterable=range(num_iter),
@@ -211,6 +218,7 @@ class BenchmarkDataset(ABC):
                     data_collator=data_collator,
                     trainer_class=self._get_trainer_class(),
                     evaluate_inputs_fn=self._get_evaluate_inputs,
+                    preprocess_logits_for_metrics=self._preprocess_logits_for_metrics,
                 )
         else:
             scores = finetune(

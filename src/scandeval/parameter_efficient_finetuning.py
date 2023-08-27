@@ -3,6 +3,7 @@
 import logging
 import warnings
 from collections import defaultdict
+from copy import deepcopy
 from functools import partial
 from typing import Any, Callable, Type
 
@@ -57,6 +58,7 @@ def parameter_efficient_finetune(
     data_collator: DataCollator,
     trainer_class: Type[Trainer],
     evaluate_inputs_fn: Callable[..., dict[str, Any]],
+    preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
 ) -> dict[str, list[dict[str, float]]]:
     """Evaluate a model on a dataset through parameter efficient finetuning.
 
@@ -94,6 +96,10 @@ def parameter_efficient_finetune(
         evaluate_inputs_fn:
             A function that generates the appropriate inputs for the `Trainer.evaluate`
             method.
+        preprocess_logits_for_metrics:
+            A function that preprocesses the logits before they are passed to the
+            `compute_metrics` function. This helps prevent memory issues during
+            evaluation.
 
     Returns:
         A dictionary containing the scores, with keys "test" and maybe "train", with
@@ -126,8 +132,8 @@ def parameter_efficient_finetune(
             assert isinstance(test, Dataset)
             assert isinstance(prepared_test, Dataset)
 
-            # Re-block terminal output, as it gets unblocked by the
-            # `transformers` package before training
+            # Re-block terminal output, as it gets unblocked by the `transformers`
+            # package before training
             block_terminal_output()
 
             training_args = get_training_args(
@@ -154,6 +160,7 @@ def parameter_efficient_finetune(
                 model=model if model_already_initialized else None,
                 trainer_class=trainer_class,
                 evaluate_inputs_fn=evaluate_inputs_fn,
+                preprocess_logits_for_metrics=preprocess_logits_for_metrics,
             )
 
             # If the iteration was successful then break the loop
@@ -163,8 +170,9 @@ def parameter_efficient_finetune(
             # Otherwise we encountered an error, so we have to deal with it and try
             # again
             else:
+                exception = itr_scores
                 bs = training_args.per_device_train_batch_size
-                bs = handle_error(e=itr_scores, per_device_train_batch_size=bs)
+                bs = handle_error(e=exception, per_device_train_batch_size=bs)
 
                 # Clear memory, to avoid memory issues
                 try:
@@ -204,6 +212,7 @@ def parameter_efficient_finetune_single_iteration(
     model: PreTrainedModel | None,
     trainer_class: Type[Trainer],
     evaluate_inputs_fn: Callable[..., dict[str, Any]],
+    preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
 ) -> dict[str, dict[str, float]] | Exception:
     """Run a single iteration of a benchmark.
 
@@ -243,84 +252,70 @@ def parameter_efficient_finetune_single_iteration(
         evaluate_inputs_fn:
             A function that generates the appropriate inputs for the `Trainer.evaluate`
             method.
+        preprocess_logits_for_metrics:
+            A function that preprocesses the logits before they are passed to the
+            `compute_metrics` function. This helps prevent memory issues during
+            evaluation.
 
     Returns:
         A dictionary containing the scores for the current iteration, with keys `train`
         and `test`. If an exception is raised, then the exception is returned.
     """
     scores: dict[str, dict[str, float]] = dict()
+
+    # Set random seeds to enforce reproducibility of the randomly initialised weights
+    seed = 4242 + iteration_idx
+    enforce_reproducibility(framework=model_config.framework, seed=seed)
+
+    if tokenizer is None or model is None:
+        tokenizer, model_or_generative_model = load_model(
+            model_config=model_config,
+            dataset_config=dataset_config,
+            benchmark_config=benchmark_config,
+        )
+        assert isinstance(model_or_generative_model, PreTrainedModel)
+        model = model_or_generative_model
+
+    # Prepare for parameter-efficient fine-tuning
+    model.gradient_checkpointing_enable()
+    model = prepare_model_for_kbit_training(model=model)
+    assert isinstance(model, PreTrainedModel)
+    peft_model = get_peft_model(model=model, peft_config=get_peft_config(model=model))
+
+    compute_metrics = partial(compute_metrics, id2label=dataset_config.id2label)
+    early_stopping = EarlyStoppingCallback(early_stopping_patience=2)
+    trainer = trainer_class(
+        model=peft_model,
+        args=training_args,
+        train_dataset=prepared_train,
+        eval_dataset=prepared_val,
+        tokenizer=tokenizer,
+        compute_metrics=compute_metrics,
+        callbacks=[early_stopping],
+        data_collator=data_collator,
+        preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+    )
+
+    if not benchmark_config.verbose:
+
+        def no_logging(logs: dict[str, float]) -> None:
+            return
+
+        trainer.log = no_logging
+
+    # Re-block terminal output, as it gets unblocked by the `transformers`
+    # package before training
+    block_terminal_output()
+
+    # Sort out callbacks. We remove the callbacks that are producing unnecessary
+    # output, to avoid cluttering the terminal output
+    if not benchmark_config.verbose:
+        trainer.remove_callback(PrinterCallback)
+    trainer.remove_callback(ProgressCallback)
+    if benchmark_config.progress_bar:
+        trainer.add_callback(NeverLeaveProgressCallback)
+
     try:
-        # Set random seeds to enforce reproducibility of the randomly initialised
-        # weights
-        seed = 4242 + iteration_idx
-        enforce_reproducibility(framework=model_config.framework, seed=seed)
-
-        if tokenizer is None or model is None:
-            tokenizer, model_or_generative_model = load_model(
-                model_config=model_config,
-                dataset_config=dataset_config,
-                benchmark_config=benchmark_config,
-            )
-            assert isinstance(model_or_generative_model, PreTrainedModel)
-            model = model_or_generative_model
-
-        # Prepare for parameter-efficient fine-tuning
-        model.gradient_checkpointing_enable()
-        model = prepare_model_for_kbit_training(model=model)
-        assert isinstance(model, PreTrainedModel)
-        peft_model = get_peft_model(
-            model=model,
-            peft_config=LoraConfig(
-                r=8,  # Dimension of the intermediate representation
-                lora_alpha=16,  # How much the LoRA weight change is scaled
-                lora_dropout=0.05,
-                bias="none",
-                target_modules=get_names_of_all_linear_layers(model=model),
-            ),
-        )
-        num_trainable_params, _ = peft_model.get_nb_trainable_parameters()
-        logger.info(
-            f"Conducting parameter-efficient finetuning, with {num_trainable_params:,} "
-            "trainable parameters."
-        )
-
-        # Initialise compute_metrics function
-        compute_metrics = partial(compute_metrics, id2label=dataset_config.id2label)
-
-        # Initialise early stopping callback
-        early_stopping = EarlyStoppingCallback(early_stopping_patience=2)
-
-        # Initialise trainer
-        trainer = trainer_class(
-            model=peft_model,
-            args=training_args,
-            train_dataset=prepared_train,
-            eval_dataset=prepared_val,
-            tokenizer=tokenizer,
-            compute_metrics=compute_metrics,
-            callbacks=[early_stopping],
-            data_collator=data_collator,
-        )
-
-        if not benchmark_config.verbose:
-
-            def no_logging(logs: dict[str, float]) -> None:
-                return
-
-            trainer.log = no_logging
-
-        # Re-block terminal output, as it gets unblocked by the `transformers`
-        # package before training
-        block_terminal_output()
-
-        # Sort out callbacks. We remove the callbacks that are producing unnecessary
-        # output, to avoid cluttering the terminal output
-        if not benchmark_config.verbose:
-            trainer.remove_callback(PrinterCallback)
-        trainer.remove_callback(ProgressCallback)
-        if benchmark_config.progress_bar:
-            trainer.add_callback(NeverLeaveProgressCallback)
-
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=UserWarning)
             trainer.train()
@@ -344,7 +339,6 @@ def parameter_efficient_finetune_single_iteration(
             test_scores = trainer.evaluate(**evaluate_inputs)
         scores["test"] = test_scores
 
-        # Return the scores
         return scores
 
     except (RuntimeError, ValueError, IndexError) as e:
@@ -409,7 +403,6 @@ def get_training_args(
     else:
         optim = OptimizerNames.ADAMW_TORCH
 
-    # Initialise training arguments
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
         training_args = TrainingArguments(
@@ -417,7 +410,7 @@ def get_training_args(
             evaluation_strategy=IntervalStrategy.STEPS,
             logging_strategy=logging_strategy,
             save_strategy=IntervalStrategy.STEPS,
-            eval_steps=2,  # TEM
+            eval_steps=30,
             logging_steps=30,
             save_steps=30,
             max_steps=10_000 if not benchmark_config.testing else 10,
@@ -453,3 +446,41 @@ def get_names_of_all_linear_layers(model: PreTrainedModel) -> list[str]:
     return [
         name for name, module in model.named_modules() if isinstance(module, nn.Linear)
     ]
+
+
+def get_peft_config(model: PreTrainedModel) -> LoraConfig:
+    """Get the parameter-efficient finetuning configuration used for the benchmark.
+
+    Args:
+        model:
+            The model to be finetuned.
+
+    Returns:
+        The PEFT configuration used for the benchmark.
+    """
+    return LoraConfig(
+        r=8,  # Dimension of the intermediate representation
+        lora_alpha=16,  # How much the LoRA weight change is scaled
+        lora_dropout=0.05,
+        target_modules=get_names_of_all_linear_layers(model=model),
+    )
+
+
+def log_peft_trainable_parameters(model: PreTrainedModel) -> None:
+    """Log the number of trainable parameters of the model.
+
+    Args:
+        model:
+            The model.
+    """
+    temp_model = deepcopy(model)
+    temp_model = prepare_model_for_kbit_training(model=temp_model)
+    peft_model = get_peft_model(
+        model=temp_model,
+        peft_config=get_peft_config(model=model),
+    )
+    num_trainable_params, _ = peft_model.get_nb_trainable_parameters()
+    logger.info(
+        f"Conducting parameter-efficient finetuning, with {num_trainable_params:,} "
+        "trainable parameters."
+    )
