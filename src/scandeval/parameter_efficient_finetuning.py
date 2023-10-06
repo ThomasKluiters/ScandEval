@@ -28,6 +28,7 @@ from transformers.trainer import OptimizerNames
 
 from .callbacks import NeverLeaveProgressCallback
 from .config import BenchmarkConfig, DatasetConfig, ModelConfig
+from .exceptions import InvalidBenchmark
 from .model_loading import load_model
 from .protocols import Tokenizer
 from .utils import (
@@ -35,7 +36,6 @@ from .utils import (
     block_terminal_output,
     clear_memory,
     enforce_reproducibility,
-    handle_error,
 )
 
 logger = logging.getLogger(__package__)
@@ -126,65 +126,41 @@ def parameter_efficient_finetune(
                 pass
             clear_memory()
 
-        while True:
-            test = tests[idx]
-            prepared_test = prepared_tests[idx]
-            assert isinstance(test, Dataset)
-            assert isinstance(prepared_test, Dataset)
+        test = tests[idx]
+        prepared_test = prepared_tests[idx]
+        assert isinstance(test, Dataset)
+        assert isinstance(prepared_test, Dataset)
 
-            # Re-block terminal output, as it gets unblocked by the `transformers`
-            # package before training
-            block_terminal_output()
+        # Re-block terminal output, as it gets unblocked by the `transformers`
+        # package before training
+        block_terminal_output()
 
-            training_args = get_training_args(
-                benchmark_config=benchmark_config,
-                model_config=model_config,
-                iteration_idx=idx,
-                batch_size=bs,
-            )
+        training_args = get_training_args(
+            benchmark_config=benchmark_config,
+            model_config=model_config,
+            iteration_idx=idx,
+            batch_size=bs,
+        )
 
-            itr_scores = parameter_efficient_finetune_single_iteration(
-                iteration_idx=idx,
-                model_config=model_config,
-                train=train,
-                prepared_train=prepared_train,
-                prepared_val=prepared_val,
-                test=test,
-                prepared_test=prepared_test,
-                training_args=training_args,
-                benchmark_config=benchmark_config,
-                dataset_config=dataset_config,
-                data_collator=data_collator,
-                compute_metrics=compute_metrics,
-                tokenizer=tokenizer if model_already_initialized else None,
-                model=model if model_already_initialized else None,
-                trainer_class=trainer_class,
-                evaluate_inputs_fn=evaluate_inputs_fn,
-                preprocess_logits_for_metrics=preprocess_logits_for_metrics,
-            )
-
-            # If the iteration was successful then break the loop
-            if isinstance(itr_scores, dict):
-                break
-
-            # Otherwise we encountered an error, so we have to deal with it and try
-            # again
-            else:
-                exception = itr_scores
-                bs = training_args.per_device_train_batch_size
-                bs = handle_error(e=exception, per_device_train_batch_size=bs)
-
-                # Clear memory, to avoid memory issues
-                try:
-                    del model
-                except UnboundLocalError:
-                    pass
-                try:
-                    del tokenizer
-                except UnboundLocalError:
-                    pass
-                clear_memory()
-                model_already_initialized = False
+        itr_scores = parameter_efficient_finetune_single_iteration(
+            iteration_idx=idx,
+            model_config=model_config,
+            train=train,
+            prepared_train=prepared_train,
+            prepared_val=prepared_val,
+            test=test,
+            prepared_test=prepared_test,
+            training_args=training_args,
+            benchmark_config=benchmark_config,
+            dataset_config=dataset_config,
+            data_collator=data_collator,
+            compute_metrics=compute_metrics,
+            tokenizer=tokenizer if model_already_initialized else None,
+            model=model if model_already_initialized else None,
+            trainer_class=trainer_class,
+            evaluate_inputs_fn=evaluate_inputs_fn,
+            preprocess_logits_for_metrics=preprocess_logits_for_metrics,
+        )
 
         if "train" in itr_scores:
             logger.debug(f"Train scores for iteration {idx}: {itr_scores['train']}")
@@ -213,7 +189,7 @@ def parameter_efficient_finetune_single_iteration(
     trainer_class: Type[Trainer],
     evaluate_inputs_fn: Callable[..., dict[str, Any]],
     preprocess_logits_for_metrics: Callable[[torch.Tensor, torch.Tensor], torch.Tensor],
-) -> dict[str, dict[str, float]] | Exception:
+) -> dict[str, dict[str, float]]:
     """Run a single iteration of a benchmark.
 
     Args:
@@ -259,7 +235,7 @@ def parameter_efficient_finetune_single_iteration(
 
     Returns:
         A dictionary containing the scores for the current iteration, with keys `train`
-        and `test`. If an exception is raised, then the exception is returned.
+        and `test`.
     """
     scores: dict[str, dict[str, float]] = dict()
 
@@ -342,20 +318,7 @@ def parameter_efficient_finetune_single_iteration(
         return scores
 
     except (RuntimeError, ValueError, IndexError) as e:
-        try:
-            del model
-        except UnboundLocalError:
-            pass
-        try:
-            del peft_model
-        except UnboundLocalError:
-            pass
-        try:
-            del tokenizer
-        except UnboundLocalError:
-            pass
-        clear_memory()
-        return e
+        raise InvalidBenchmark(str(e))
 
 
 def get_training_args(

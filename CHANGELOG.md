@@ -37,6 +37,9 @@ and this project adheres to
 - Changed the `--model-framework` argument to `--framework`.
 - Changed the `--use-auth-token` and `--auth-token` arguments to `--use-token` and
   `--token`, reflecting the same change in the `transformers` package.
+- Now uses the new `auto_find_batch_size` argument in `TrainingArguments`, rather than
+  manually doing this, as the underlying `accelerate` built-in version is more robust.
+- Now reports all model parameters, rather than just the trainable ones.
 
 ### Removed
 - Previously generative models had their maximum sequence length altered by subtracting
@@ -49,6 +52,7 @@ and this project adheres to
 - Some models output both logits and hidden states, which caused unnecessary
   out-of-memory issues. This is now handled using the `preprocess_logits_for_metrics`
   argument in `Trainer`.
+- Now catches errors while loading model configurations.
 
 
 ## [v7.1.1] - 2023-07-01

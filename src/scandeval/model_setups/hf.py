@@ -6,10 +6,17 @@ from json import JSONDecodeError
 from time import sleep
 from typing import Type
 
+import torch
 from huggingface_hub import HfApi, ModelFilter
 from huggingface_hub.hf_api import RepositoryNotFoundError
 from requests.exceptions import RequestException
-from transformers import AutoConfig, AutoTokenizer, PretrainedConfig, PreTrainedModel
+from transformers import (
+    AutoConfig,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    PretrainedConfig,
+    PreTrainedModel,
+)
 from urllib3.exceptions import RequestError
 
 from ..config import BenchmarkConfig, DatasetConfig, ModelConfig
@@ -204,17 +211,17 @@ class HFModelSetup:
             model_config=model_config,
         )
 
-        config = self._load_hf_model_config(
-            model_id=model_id,
-            num_labels=dataset_config.num_labels,
-            id2label=dataset_config.id2label,
-            label2id=dataset_config.label2id,
-            revision=model_config.revision,
-            model_cache_dir=model_config.model_cache_dir,
-        )
-
         while True:
             try:
+                config = self._load_hf_model_config(
+                    model_id=model_id,
+                    num_labels=dataset_config.num_labels,
+                    id2label=dataset_config.id2label,
+                    label2id=dataset_config.label2id,
+                    revision=model_config.revision,
+                    model_cache_dir=model_config.model_cache_dir,
+                )
+
                 # Get the model class associated with the supertask
                 if model_config.task in ["text-generation", "conversational"]:
                     model_cls_supertask = "causal-l-m"
@@ -245,18 +252,27 @@ class HFModelSetup:
                     warnings.filterwarnings("ignore", category=FutureWarning)
                     with HiddenPrints():
                         try:
+                            bnb_config = (
+                                BitsAndBytesConfig(
+                                    load_in_4bit=load_in_4bit,
+                                    bnb_4bit_compute_type=torch.float16,
+                                    bnb_4bit_use_double_quant=True,
+                                )
+                                if load_in_4bit
+                                else None
+                            )
                             model_or_tuple = model_cls_or_none.from_pretrained(
                                 model_config.model_id,
                                 config=config,
                                 from_flax=from_flax,
                                 ignore_mismatched_sizes=ignore_mismatched_sizes,
-                                load_in_4bit=load_in_4bit,
                                 revision=model_config.revision,
                                 token=self.benchmark_config.token,
                                 cache_dir=model_config.model_cache_dir,
                                 trust_remote_code=(
                                     self.benchmark_config.trust_remote_code
                                 ),
+                                quantization_config=bnb_config,
                             )
                         except (KeyError, RuntimeError) as e:
                             if not ignore_mismatched_sizes:
@@ -290,7 +306,9 @@ class HFModelSetup:
         if supertask == "question-answering":
             model = setup_model_for_question_answering(model=model)
 
-        tokenizer = self._load_tokenizer(model=model, model_id=model_id)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=UserWarning)
+            tokenizer = self._load_tokenizer(model=model, model_id=model_id)
 
         model, tokenizer = align_model_and_tokenizer(
             model=model,
@@ -335,7 +353,7 @@ class HFModelSetup:
         """
         while True:
             try:
-                return AutoConfig.from_pretrained(
+                config = AutoConfig.from_pretrained(
                     model_id,
                     num_labels=num_labels,
                     id2label=id2label,
@@ -345,6 +363,9 @@ class HFModelSetup:
                     token=self.benchmark_config.token,
                     trust_remote_code=self.benchmark_config.trust_remote_code,
                 )
+                if config.eos_token_id is not None and config.pad_token_id is None:
+                    config.pad_token_id = config.eos_token_id
+                return config
             except KeyError as e:
                 key = e.args[0]
                 raise InvalidBenchmark(

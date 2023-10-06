@@ -26,7 +26,6 @@ from transformers import logging as tf_logging
 
 from .config import BenchmarkConfig, Language, ModelConfig
 from .enums import Framework
-from .exceptions import InvalidBenchmark
 from .languages import DA, NB, NN, NO, SV, get_all_languages
 from .protocols import GenerativeModel, Tokenizer
 
@@ -216,31 +215,6 @@ def kebab_to_pascal(kebab_string: str) -> str:
         The PascalCase string.
     """
     return "".join(word.title() for word in kebab_string.split("-"))
-
-
-def handle_error(e: Exception, per_device_train_batch_size: int) -> int:
-    """Handle an error that occurred during the benchmarking process.
-
-    Args:
-        e:
-            The exception that was raised.
-        per_device_train_batch_size:
-            The batch size used for training.
-
-    Returns:
-        The batch size.
-    """
-    # We assume that all these errors are caused by insufficient GPU memory
-    gpu_errors = ["CUDA out of memory", "CUDA error", "MPS backend out of memory"]
-
-    # If it is an unknown error, then simply report it
-    if all([err not in str(e) for err in gpu_errors]):
-        raise InvalidBenchmark(str(e))
-
-    # If it is a GPU memory error, then reduce batch size
-    if per_device_train_batch_size == 1:
-        raise InvalidBenchmark("GPU out of memory, even with a batch size of 1!")
-    return per_device_train_batch_size // 2
 
 
 def internet_connection_available() -> bool:
@@ -529,10 +503,16 @@ def model_is_generative(model: PreTrainedModel | GenerativeModel) -> bool:
         Whether the model is generative or not.
     """
     try:
-        dummy_inputs = torch.tensor([[1]], device=model.device, dtype=torch.long)
-        generation_config = GenerationConfig(max_new_tokens=1)
-        model.generate(inputs=dummy_inputs, generation_config=generation_config)
-        return True
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            dummy_inputs = torch.tensor([[1]], device=model.device, dtype=torch.long)
+            generation_config = GenerationConfig(
+                max_new_tokens=1,
+                pad_token_id=model.config.pad_token_id,
+                eos_token_id=model.config.eos_token_id,
+            )
+            model.generate(inputs=dummy_inputs, generation_config=generation_config)
+            return True
     except (NotImplementedError, TypeError):
         return False
 
