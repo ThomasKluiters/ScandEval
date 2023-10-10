@@ -86,15 +86,15 @@ view-docs:  ## View documentation
 		"$${openCmd}" docs/scandeval.html
 
 bump-major:
-	@poetry run python -m src.scripts.versioning --major
+	@poetry run python src/scripts/versioning.py --major
 	@echo "Bumped major version!"
 
 bump-minor:
-	@poetry run python -m src.scripts.versioning --minor
+	@poetry run python src/scripts/versioning.py --minor
 	@echo "Bumped minor version!"
 
 bump-patch:
-	@poetry run python -m src.scripts.versioning --patch
+	@poetry run python src/scripts/versioning.py --patch
 	@echo "Bumped patch version!"
 
 publish:
