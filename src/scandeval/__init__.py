@@ -41,3 +41,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Enable MPS fallback
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+
+
+# Set amount of threads per GPU - this is the default and is only set to prevent a
+# warning from showing
+os.environ["OMP_NUM_THREADS"] = "1"

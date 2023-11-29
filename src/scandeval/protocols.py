@@ -1,7 +1,6 @@
-"""Base class for a model setup."""
+"""Protocols used throughout the project."""
 
 from typing import Protocol, runtime_checkable
-
 import torch
 from transformers import (
     BatchEncoding,

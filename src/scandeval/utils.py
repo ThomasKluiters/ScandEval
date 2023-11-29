@@ -39,6 +39,13 @@ GENERATIVE_MODEL_TASKS = [
 ]
 
 
+GENERATIVE_DATASET_TASKS = [
+    "multiple-choice",
+    "text-to-text",
+    "raw-text",
+]
+
+
 def create_model_cache_dir(cache_dir: str, model_id: str) -> str:
     """Create cache directory for a model.
 
@@ -141,6 +148,8 @@ def block_terminal_output():
     logging.getLogger("absl").setLevel(logging.ERROR)
     logging.getLogger("datasets").setLevel(logging.ERROR)
     logging.getLogger("openai").setLevel(logging.ERROR)
+    logging.getLogger("torch.distributed.distributed_c10d").setLevel(logging.ERROR)
+    logging.getLogger("torch.nn.parallel.distributed").setLevel(logging.ERROR)
 
     # Disable the tokeniser progress bars
     disable_progress_bar()
@@ -324,7 +333,7 @@ def get_huggingface_model_lists(
                 language_list = [lang for lang in language_list if lang != NO]
 
             language_string = (
-                f"{', '.join(l.name for l in language_list[:-1])} and "
+                f"{', '.join(lang.name for lang in language_list[:-1])} and "
                 f"{language_list[-1].name}"
             )
 
