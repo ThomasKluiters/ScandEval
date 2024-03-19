@@ -3039,8 +3039,8 @@ test = ["accelerate", "beartype (<0.16.0)", "coverage[toml] (>=5.1)", "datasets"
 [package.source]
 type = "git"
 url = "https://github.com/saattrupdan/outlines"
-reference = "HEAD"
-resolved_reference = "31aacb3686ce86fc4d20c1f322dcaaa6ca0f0318"
+reference = "fix/757-vllm-integration-bug"
+resolved_reference = "9f9f32df19160b0c8a44f85b144179ccec4e3e95"
 
 [[package]]
 name = "packaging"
@@ -5650,4 +5650,4 @@ openai = ["levenshtein", "openai", "tiktoken"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.12"
-content-hash = "c3d22887d2446d0c315614bedf05f5d8956add469c11d06ea50a8b8114512beb"
+content-hash = "2847bfacfa72615f116da2f99dc7015af2b9f6053c08589522dc7078e332ce21"
