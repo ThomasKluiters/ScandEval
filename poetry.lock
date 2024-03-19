@@ -3007,7 +3007,7 @@ testing = ["flax", "pytest", "pytest-xdist"]
 
 [[package]]
 name = "outlines"
-version = "0.1.dev621+g31aacb3"
+version = "0.1.dev532+g0361d5c"
 description = "Probabilistic Generative Model Programming"
 optional = true
 python-versions = ">=3.8"
@@ -3022,7 +3022,7 @@ jinja2 = "*"
 joblib = "*"
 jsonschema = "*"
 lark = "*"
-nest_asyncio = "*"
+nest-asyncio = "*"
 numba = "*"
 numpy = "*"
 pydantic = ">=2.0"
@@ -3034,13 +3034,13 @@ transformers = "*"
 
 [package.extras]
 serve = ["fastapi", "pydantic (>=2.0)", "ray (==2.9.0)", "uvicorn", "vllm (>=0.3.0)"]
-test = ["accelerate", "beartype (<0.16.0)", "coverage[toml] (>=5.1)", "datasets", "diff-cover", "huggingface_hub", "llama-cpp-python", "openai (>=1.0.0)", "pre-commit", "pytest", "pytest-benchmark", "pytest-cov", "pytest-mock", "responses", "transformers"]
+test = ["accelerate", "beartype (<0.16.0)", "coverage[toml] (>=5.1)", "datasets", "diff-cover", "huggingface-hub", "llama-cpp-python", "openai (>=1.0.0)", "pre-commit", "pytest", "pytest-benchmark", "pytest-cov", "pytest-mock", "responses", "transformers"]
 
 [package.source]
 type = "git"
 url = "https://github.com/saattrupdan/outlines"
-reference = "fix/757-vllm-integration-bug"
-resolved_reference = "9f9f32df19160b0c8a44f85b144179ccec4e3e95"
+reference = "fix/converting-replacement-character-in-fsm"
+resolved_reference = "0361d5c2f793be4af32ed1791687b1481288d55f"
 
 [[package]]
 name = "packaging"
@@ -5650,4 +5650,4 @@ openai = ["levenshtein", "openai", "tiktoken"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.12"
-content-hash = "2847bfacfa72615f116da2f99dc7015af2b9f6053c08589522dc7078e332ce21"
+content-hash = "4d59ae2a967a9ba67a99135a91c449ab4ca7afc31ed8da4adf9a9affb55d3072"
